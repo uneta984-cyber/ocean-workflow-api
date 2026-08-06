@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>賞味期限確認システム</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+      background: #f4f6f8;
+      color: #1f2937;
+    }
+
+    .page {
+      width: min(100% - 24px, 900px);
+      margin: 0 auto;
+      padding: 24px 0 60px;
+    }
+
+    .header {
+      margin-bottom: 24px;
+    }
+
+    .header h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+
+    .header p {
+      margin: 0;
+      color: #64748b;
+    }
+
+    .machine-area {
+      display: grid;
+      grid-template-columns:
+        repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin: 24px 0;
+    }
+
+    .machine-button {
+      border: none;
+      border-radius: 14px;
+      padding: 18px 12px;
+      font-size: 17px;
+      font-weight: 700;
+      background: white;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+      cursor: pointer;
+    }
+
+    .machine-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .status {
+      min-height: 24px;
+      margin: 18px 0;
+      font-weight: 700;
+    }
+
+    .summary {
+      display: none;
+      background: white;
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.07);
+    }
+
+    .summary strong {
+      font-size: 22px;
+    }
+
+    .alerts {
+      display: grid;
+      gap: 16px;
+    }
+
+    .alert-card {
+      background: white;
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+      border-left: 8px solid #94a3b8;
+    }
+
+    .alert-card.urgent {
+      border-left-color: #dc2626;
+    }
+
+    .alert-card.warning {
+      border-left-color: #f59e0b;
+    }
+
+    .alert-card.expired {
+      border-left-color: #111827;
+    }
+
+    .alert-card.date-error {
+      border-left-color: #7c3aed;
+    }
+
+    .alert-top {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .product-image {
+      width: 82px;
+      height: 82px;
+      object-fit: contain;
+      border-radius: 12px;
+      background: #eef2f7;
+      flex-shrink: 0;
+    }
+
+    .image-placeholder {
+      width: 82px;
+      height: 82px;
+      border-radius: 12px;
+      background: #eef2f7;
+      display: grid;
+      place-items: center;
+      font-size: 34px;
+      flex-shrink: 0;
+    }
+
+    .product-name {
+      margin: 0 0 6px;
+      font-size: 22px;
+    }
+
+    .level {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 14px;
+      background: #e2e8f0;
+    }
+
+    .urgent .level {
+      color: #991b1b;
+      background: #fee2e2;
+    }
+
+    .warning .level {
+      color: #92400e;
+      background: #fef3c7;
+    }
+
+    .expired .level {
+      color: white;
+      background: #111827;
+    }
+
+    .date-error .level {
+      color: white;
+      background: #7c3aed;
+    }
+
+    .details {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns:
+        repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .detail {
+      padding: 12px;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .detail-label {
+      display: block;
+      color: #64748b;
+      font-size: 13px;
+      margin-bottom: 3px;
+    }
+
+    .detail-value {
+      font-weight: 800;
+      font-size: 17px;
+    }
+
+    .empty-message {
+      padding: 28px;
+      text-align: center;
+      background: white;
+      border-radius: 16px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 520px) {
+      .header h1 {
+        font-size: 25px;
+      }
+
+      .product-name {
+        font-size: 19px;
+      }
+
+      .product-image,
+      .image-placeholder {
+        width: 68px;
+        height: 68px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <section class="header">
+      <h1>賞味期限確認システム</h1>
+      <p>
+        自販機を押すと、賞味期限が近い商品だけを表示します。
+      </p>
+    </section>
+
+    <section class="machine-area">
+      <button
+        class="machine-button"
+        onclick="loadAlerts('テスト')"
+      >
+        テストA号機
+      </button>
+
+      <button
+        class="machine-button"
+        onclick="loadAlerts('野底A')"
+      >
+        野底A号機
+      </button>
+
+      <button
+        class="machine-button"
+        onclick="loadAlerts('野底B')"
+      >
+        野底B号機
+      </button>
+
+      <button
+        class="machine-button"
+        onclick="loadAlerts('野底C')"
+      >
+        野底C号機
+      </button>
+    </section>
+
+    <div id="status" class="status">
+      自販機を選んでください。
+    </div>
+
+    <section id="summary" class="summary"></section>
+
+    <section id="alerts" class="alerts"></section>
+  </main>
+
+  <script>
+    const statusElement =
+      document.getElementById("status");
+
+    const summaryElement =
+      document.getElementById("summary");
+
+    const alertsElement =
+      document.getElementById("alerts");
+
+    async function loadAlerts(sheetName) {
+      statusElement.textContent =
+        `${sheetName}の賞味期限を確認しています…`;
+
+      summaryElement.style.display = "none";
+      alertsElement.innerHTML = "";
+
+      try {
+        const url =
+  `/api/expiry-alerts?sheet=${encodeURIComponent(
+    sheetName
+  )}&days=180&_=${Date.now()}`;
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (!response.ok || result.success !== true) {
+          throw new Error(
+            result.error ||
+            "賞味期限データを取得できませんでした。"
+          );
+        }
+
+        statusElement.textContent =
+          `${sheetName}の確認が完了しました。`;
+
+        summaryElement.style.display = "block";
+        summaryElement.innerHTML = `
+          <strong>${result.alert_count}件</strong>
+          の確認対象があります。
+        `;
+
+        if (
+          !Array.isArray(result.alerts) ||
+          result.alerts.length === 0
+        ) {
+          alertsElement.innerHTML = `
+            <div class="empty-message">
+              賞味期限が近い商品はありません。
+            </div>
+          `;
+          return;
+        }
+
+        alertsElement.innerHTML =
+          result.alerts
+            .map(createAlertCard)
+            .join("");
+      } catch (error) {
+        console.error(error);
+
+        statusElement.textContent =
+          "読み取りに失敗しました。";
+
+        summaryElement.style.display = "none";
+
+        alertsElement.innerHTML = `
+          <div class="empty-message">
+            エラー：${escapeHtml(error.message)}
+          </div>
+        `;
+      }
+    }
+
+    function createAlertCard(product) {
+      const cardClass =
+        getAlertClass(product.alert_level);
+
+      const imageHtml =
+        product.image_url
+          ? `
+            <img
+              class="product-image"
+              src="${escapeHtml(product.image_url)}"
+              alt="${escapeHtml(product.product_name)}"
+            />
+          `
+          : `
+            <div class="image-placeholder">
+              🥤
+            </div>
+          `;
+
+      const quantity =
+        product.quantity === null ||
+        product.quantity === ""
+          ? "未入力"
+          : `${product.quantity}本`;
+
+      const remaining =
+        product.days_remaining === null
+          ? "確認必要"
+          : product.days_remaining < 0
+            ? `${Math.abs(product.days_remaining)}日超過`
+            : `残り${product.days_remaining}日`;
+
+      return `
+        <article class="alert-card ${cardClass}">
+          <div class="alert-top">
+            ${imageHtml}
+
+            <div>
+              <h2 class="product-name">
+                ${escapeHtml(product.product_name)}
+              </h2>
+
+              <span class="level">
+                ${escapeHtml(product.alert_level)}
+              </span>
+            </div>
+          </div>
+
+          <div class="details">
+            <div class="detail">
+              <span class="detail-label">
+                賞味期限
+              </span>
+              <span class="detail-value">
+                ${escapeHtml(product.expiry_date)}
+              </span>
+            </div>
+
+            <div class="detail">
+              <span class="detail-label">
+                残り日数
+              </span>
+              <span class="detail-value">
+                ${escapeHtml(remaining)}
+              </span>
+            </div>
+
+            <div class="detail">
+              <span class="detail-label">
+                登録本数
+              </span>
+              <span class="detail-value">
+                ${escapeHtml(quantity)}
+              </span>
+            </div>
+          </div>
+        </article>
+      `;
+    }
+
+    function getAlertClass(level) {
+      if (level === "期限切れ") {
+        return "expired";
+      }
+
+      if (level === "至急") {
+        return "urgent";
+      }
+
+      if (level === "注意") {
+        return "warning";
+      }
+
+      if (level === "日付エラー") {
+        return "date-error";
+      }
+
+      return "";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+  </script>
+</body>
+</html>

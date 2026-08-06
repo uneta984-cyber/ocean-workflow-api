@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Ocean Workflow API</title>
+<style>
+body{
+    font-family:Arial,sans-serif;
+    background:#f5f7fb;
+    margin:40px;
+}
+
+.container{
+    max-width:900px;
+    margin:auto;
+}
+
+#dropZone{
+    border:3px dashed #4f7cff;
+    border-radius:16px;
+    background:white;
+    padding:60px;
+    text-align:center;
+    cursor:pointer;
+    transition:.2s;
+}
+
+#dropZone:hover{
+    background:#eef4ff;
+}
+
+button{
+    margin-top:20px;
+    padding:12px 24px;
+    border:none;
+    border-radius:10px;
+    background:#4f7cff;
+    color:white;
+    font-size:16px;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#2f62ff;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Ocean Workflow API</h1>
+
+<p>メール・PDF・画像をドラッグ＆ドロップしてください。</p>
+
+<div id="dropZone">
+📧 ここへファイルをドロップ
+</div>
+
+</div>
+<script>
+const dropZone = document.getElementById("dropZone");
+
+dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZone.style.background = "#dbeafe";
+});
+
+dropZone.addEventListener("dragleave", () => {
+    dropZone.style.background = "white";
+});
+
+dropZone.addEventListener("drop",async  (e) => {
+    e.preventDefault();
+
+    dropZone.style.background = "white";
+
+    const files = e.dataTransfer.files;
+
+    if (files.length > 0) {
+  const file = files[0];
+
+  dropZone.innerHTML =
+    "📁 " + file.name + "<br><br>アップロード中...";
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const response = await fetch("/workflow/upload", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "アップロードに失敗しました。");
+    }
+
+    dropZone.innerHTML =
+  "✅ " + file.name +
+  "<br><br>AI解析完了" +
+  "<br>サイズ: " + data.file.size + " bytes" +
+  "<br><br><strong>解析結果</strong>" +
+  "<pre style='text-align:left; white-space:pre-wrap;'>" +
+  JSON.stringify(data.analysis, null, 2) +
+  "</pre>";
+  } catch (error) {
+    dropZone.innerHTML =
+      "❌ アップロードエラー<br><br>" + error.message;
+  }
+}
+});
+</script>
+</body>
+</html>

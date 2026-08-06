@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ocean Error Center</title>
+
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      background: #eef3f1;
+      color: #1f2d2a;
+    }
+
+    .container {
+      width: 92%;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 40px 0;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+    }
+
+    .summary {
+      margin: 24px 0;
+      padding: 18px;
+      border-radius: 14px;
+      background: white;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+
+    .error-card {
+      margin-bottom: 16px;
+      padding: 18px;
+      border-left: 6px solid #b63737;
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+
+    .error-id {
+      font-weight: bold;
+      font-size: 18px;
+    }
+
+    .status {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #ffe2e2;
+      color: #8f2020;
+      font-size: 13px;
+    }
+
+    pre {
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 10px;
+      background: #151918;
+      color: #82ffac;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      padding: 30px;
+      text-align: center;
+      background: white;
+      border-radius: 14px;
+    }
+
+    a {
+      color: #174f48;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="container">
+    <h1>Ocean Error Center</h1>
+    <p>Ocean Workflow APIのエラー監視画面</p>
+
+    <p>
+      <a href="/">← Workflow画面へ戻る</a>
+    </p>
+
+    <section class="summary">
+      未解決エラー：
+      <strong id="errorCount">読み込み中...</strong>
+    </section>
+
+    <section id="errorList"></section>
+  </main>
+
+  <script>
+    async function loadErrors() {
+      const errorCount = document.getElementById("errorCount");
+      const errorList = document.getElementById("errorList");
+
+      try {
+        const response = await fetch("/api/errors");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "エラー一覧を取得できませんでした。");
+        }
+
+        errorCount.textContent = `${data.count}件`;
+
+        if (data.errors.length === 0) {
+          errorList.innerHTML =
+            '<div class="empty">現在、記録されたエラーはありません。</div>';
+          return;
+        }
+
+        errorList.innerHTML = data.errors.map(error => `
+          <article class="error-card">
+            <div class="error-id">${error.error_id}</div>
+            <div>発生日時：${error.created_at}</div>
+            <div>発生場所：${error.stage}</div>
+            <div class="status">${error.status}</div>
+　　　　　　　<button onclick="resolveError('${error.error_id}')">
+  　　　　　　　対応済みにする
+　　　　　　　</button>
+           
+　　　　　　　<pre>${JSON.stringify(error, null, 2)}</pre>
+          </article>
+        `).join("");
+      } catch (error) {
+        errorCount.textContent = "取得失敗";
+        errorList.innerHTML = `
+          <div class="empty">
+            エラー一覧の読み込みに失敗しました。<br>
+            ${error.message}
+          </div>
+        `;
+      }
+    }
+async function resolveError(errorId) {
+  const confirmed = confirm(
+    `${errorId}を対応済みにしますか？`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(
+      `/api/errors/${errorId}/resolve`,
+      {
+        method: "POST"
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "更新に失敗しました。"
+      );
+    }
+
+    alert("対応済みに変更しました。");
+    loadErrors();
+  } catch (error) {
+    alert("更新エラー：" + error.message);
+  }
+}
+    loadErrors();
+  </script>
+</body>
+</html>

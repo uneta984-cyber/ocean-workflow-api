@@ -189,7 +189,7 @@ app.post("/api/errors/:errorId/resolve", (req, res) => {
 // ========================================
 // Sky Data 共通JSON受け口
 // ========================================
-app.post("/api/workflow/intake", (req, res) => {
+app.post("/api/workflow/intake", async (req, res) => {
   try {
     const {
       request_id,
@@ -220,7 +220,44 @@ app.post("/api/workflow/intake", (req, res) => {
         message: "Required fields are missing"
       });
     }
+    const gasUrl = process.env.GAS_WEBAPP_URL;
 
+    if (!gasUrl) {
+      throw new Error("GAS_WEBAPP_URL is not configured");
+    }
+
+    console.log("Ocean received:", request_id);
+    console.log("Sending to GAS:", gasUrl);
+
+    const gasResponse = await fetch(gasUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        request_id,
+        source_type,
+        workflow_id,
+        content,
+        destination,
+        metadata,
+
+        // Sky Data側の既存doPost()でも読める形にする
+        text: content,
+        message: content
+      })
+    });
+
+    const gasResponseText = await gasResponse.text();
+
+    console.log("GAS status:", gasResponse.status);
+    console.log("GAS response:", gasResponseText);
+
+    if (!gasResponse.ok) {
+      throw new Error(
+        `GAS forwarding failed: ${gasResponse.status} ${gasResponseText}`
+      );
+    }
     return res.status(200).json({
       success: true,
       request_id,

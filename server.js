@@ -189,85 +189,108 @@ app.post("/api/errors/:errorId/resolve", (req, res) => {
 // ========================================
 // Sky Data 共通JSON受け口
 // ========================================
+// JB / Sky Data 共通受付。既存のほかのルートは変更しない。
 app.post("/api/workflow/intake", async (req, res) => {
+  const body = req.body || {};
+  const { request_id, source_type, workflow_id, content, destination, metadata } = body;
+
+  // 本番運用では WORKFLOW_API_KEY をRenderに設定し、JBから同じキーを送る。
+  const expectedKey = process.env.WORKFLOW_API_KEY;
+  if (expectedKey && req.get("x-workflow-api-key") !== expectedKey) {
+    return res.status(401).json({ success: false, status: "FAILED", error_code: "UNAUTHORIZED" });
+  }
+
+  if (typeof request_id !== "string" || !request_id.trim() ||
+      !source_type || !workflow_id || !content || !Array.isArray(destination)) {
+    return res.status(400).json({
+      success: false, status: "FAILED", error_code: "ERR-VALIDATION-001",
+      message: "request_id, source_type, workflow_id, content, destination[] are required"
+    });
+  }
+
+  const gasUrl = process.env.GAS_WEBAPP_URL;
+  if (!gasUrl) {
+    return res.status(503).json({
+      success: false, status: "FAILED", request_id,
+      message: "GAS_WEBAPP_URL is not configured"
+    });
+  }
+
+  // 明示的にSky Data用として呼ばれたときだけ、GASが理解するreport形式へ変換する。
+  // 他の既存クライアントの転送形式は維持する。
+  const isSkyData = workflow_id === "sky_data" || workflow_id === "sky_data_refill";
+  let gasPayload;
+  if (isSkyData) {
+    const details = typeof content === "object" && content !== null
+      ? content : { memo: String(content) };
+    const machineName = String(details.machineName || details.machine_name || "").trim();
+    const machineNo = String(details.machineNo || details.machine_no || "").trim();
+    const memo = String(details.memo || details.text || "").trim();
+    const refillItems = String(details.refillItems || details.refill_items || "").trim();
+    if ((!machineName && !machineNo) || (!memo && !refillItems)) {
+      return res.status(400).json({
+        success: false, status: "FAILED", request_id,
+        message: "Sky Data requires machineName or machineNo, and memo or refillItems"
+      });
+    }
+    gasPayload = {
+      source: source_type,
+      report: {
+        id: request_id,
+        createdAt: new Date().toISOString(),
+        machineName, machineNo,
+        memo: memo || `${machineName || machineNo} ${refillItems} 補充`,
+        refillItems
+      }
+    };
+  } else {
+    gasPayload = {
+      request_id, source_type, workflow_id, content, destination, metadata,
+      text: content, message: content
+    };
+  }
+
   try {
-    const {
-      request_id,
-      source_type,
-      workflow_id,
-      content,
-      destination,
-      metadata
-    } = req.body;
-
-    if (!request_id || !request_id.trim()) {
-      return res.status(400).json({
-        success: false,
-        error_code: "ERR-VALIDATION-002",
-        message: "request_id is invalid or empty"
-      });
-    }
-
-    if (
-      !source_type ||
-      !workflow_id ||
-      !content ||
-      !Array.isArray(destination)
-    ) {
-      return res.status(400).json({
-        success: false,
-        error_code: "ERR-VALIDATION-001",
-        message: "Required fields are missing"
-      });
-    }
-    const gasUrl = process.env.GAS_WEBAPP_URL;
-
-    if (!gasUrl) {
-      throw new Error("GAS_WEBAPP_URL is not configured");
-    }
-
-    console.log("Ocean received:", request_id);
-    console.log("Sending to GAS:", gasUrl);
-
+    console.log("Workflow intake received:", request_id, workflow_id);
     const gasResponse = await fetch(gasUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        request_id,
-        source_type,
-        workflow_id,
-        content,
-        destination,
-        metadata,
-
-        // Sky Data側の既存doPost()でも読める形にする
-        text: content,
-        message: content
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(gasPayload),
+      signal: AbortSignal.timeout(25000)
     });
-
-    const gasResponseText = await gasResponse.text();
-
-    console.log("GAS status:", gasResponse.status);
-    console.log("GAS response:", gasResponseText);
-
+    const raw = await gasResponse.text();
     if (!gasResponse.ok) {
-      throw new Error(
-        `GAS forwarding failed: ${gasResponse.status} ${gasResponseText}`
-      );
+      throw new Error(`GAS HTTP ${gasResponse.status}: ${raw.slice(0, 250)}`);
     }
-    return res.status(200).json({
-      success: true,
-      request_id,
-      status: "accepted"
+
+    let result;
+    try { result = JSON.parse(raw); }
+    catch {
+      throw new Error("GAS did not return JSON (check deployment URL and access)");
+    }
+
+    // GASは success ではなく ok を返す。書き込み対象シートも確認する。
+    const sheets = Array.isArray(result.writtenSheets) ? result.writtenSheets : [];
+    const expectedSheet = isSkyData && gasPayload.report.refillItems
+      ? "Y-3_REFILL" : "Y-1_RECORD_DATA";
+    if (result.ok !== true || !sheets.includes(expectedSheet)) {
+      throw new Error(`GAS write not confirmed: ${JSON.stringify(result).slice(0, 400)}`);
+    }
+
+    console.log("Workflow intake confirmed:", request_id, sheets.join(","));
+    return res.json({
+      success: true, status: "CONFIRMED", request_id,
+      data_id: result.dataId || request_id,
+      written_sheets: sheets,
+      machine_name: result.machineName || gasPayload.report?.machineName || ""
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error_code: "ERR-SERVER-000",
-      message: error.message
+    console.error("Workflow intake error:", request_id, error.message);
+    // 通信タイムアウト時はGASが書き込み済みの可能性があるため、再送しない。
+    const unknown = error.name === "TimeoutError" || error.name === "AbortError";
+    return res.status(unknown ? 504 : 502).json({
+      success: false, status: unknown ? "UNKNOWN" : "FAILED",
+      request_id, error_code: "GAS_FORWARD_ERROR", message: error.message
     });
   }
 });
